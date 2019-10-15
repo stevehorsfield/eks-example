@@ -1,0 +1,10 @@
+#!/bin/bash
+
+needs-restarting --reboothint
+if [[ $? -eq 0 ]] ; then
+  exit 0
+fi
+
+echo 'Rebooting due to pending update changes'
+
+/sbin/reboot

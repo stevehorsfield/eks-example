@@ -1,0 +1,35 @@
+#!/bin/bash
+
+set -eo pipefail
+
+BINARY_PATH="$1"
+INSTALL_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+# NODE_EXPORTER INSTALLATION
+mkdir -p /opt/node-exporter
+tar -C /opt/node-exporter --strip-components=1 -xzf $BINARY_PATH
+
+groupadd \
+    --gid 9100 \
+    node-exporter
+
+adduser \
+  --no-create-home \
+  --uid 9100 \
+  --no-user-group \
+  --gid 9100 \
+  --shell /bin/false \
+  node-exporter
+
+chown -R node-exporter:node-exporter /opt/node-exporter
+
+mkdir -p /etc/node-exporter
+
+cp -v $INSTALL_DIR/node-exporter.env /etc/node-exporter/node-exporter.env
+
+chown -R node-exporter:node-exporter /etc/node-exporter
+
+cp -v $INSTALL_DIR/node-exporter.service /etc/systemd/system/node-exporter.service
+
+systemctl enable node-exporter.service
+systemctl start node-exporter.service --no-block

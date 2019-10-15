@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -eo pipefail
+
+INSTALL_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+mkdir -p /opt/update-auto-reboot
+cp -v $INSTALL_DIR/reboot-if-needed-after-updates.service /etc/systemd/system/reboot-if-needed-after-updates.service
+cp -v $INSTALL_DIR/reboot-if-needed-after-updates /opt/update-auto-reboot/reboot-if-needed-after-updates
+
+chmod u=rx,go=r /opt/update-auto-reboot/reboot-if-needed-after-updates
+
+systemctl enable reboot-if-needed-after-updates.service
+systemctl start --no-block reboot-if-needed-after-updates.service

@@ -1,0 +1,17 @@
+[Unit]
+Description=Node exporter agent
+After=multi-user.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=15
+
+User=node-exporter
+EnvironmentFile=/etc/node-exporter/node-exporter.env
+
+ExecStart=/opt/node-exporter/node_exporter $OPTIONS
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1 @@
+Forces a reboot if updates have been installed that are not in use. A good example is a kernel update.

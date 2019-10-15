@@ -1,0 +1,77 @@
+#!/bin/bash
+
+set -u
+
+AWS_CLUSTER_ADDRESS="$1"
+AWS_CLUSTER_ADDRESS="$(sed -e 's@https://@@' <<< "$AWS_CLUSTER_ADDRESS")"
+
+yum update -y
+yum install -y docker
+
+systemctl daemon-reload
+systemctl enable docker.service
+systemctl start docker.service
+
+SYSTEMD_UNIT="$(cat - <<EOF
+[Unit]
+Description=KubeAPI proxy service
+After=network-online.target docker.service
+Wants=docker.service
+# Wants, not requires, to allow service to launch and restart. Otherwise it will be fully
+# killed as soon as docker crashes
+
+[Service]
+Type=simple
+
+ExecStartPre=-/usr/bin/docker stop %n
+ExecStartPre=-/usr/bin/docker rm --force %n
+
+ExecStart=/usr/bin/docker run \
+    -t --rm --name %n \
+    --volume /etc/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro \
+    --network=host \
+    --privileged \
+    haproxy:1.9.8 \
+    haproxy -f /usr/local/etc/haproxy/haproxy.cfg
+
+Restart=always
+RestartSec=15
+RemainAfterExit=no
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target
+EOF
+)"
+echo "$SYSTEMD_UNIT" > /etc/systemd/system/kubeapi-proxy.service
+
+HAPROXY_CFG="$(cat - <<EOF
+global
+  log stdout len 32000 user info
+
+resolvers awslocal
+  nameserver bridge 169.254.169.253:53
+
+frontend ingress
+  bind *:443
+  mode tcp
+  default_backend egress
+  timeout connect 5000ms
+  timeout client 900000ms
+  timeout server 900000ms
+  
+backend egress
+  mode tcp
+  server eksapi ${AWS_CLUSTER_ADDRESS}:443
+  timeout connect 5000ms
+  timeout client 900000ms
+  timeout server 900000ms
+EOF
+)"
+
+mkdir -p "/etc/haproxy"
+echo "$HAPROXY_CFG" > /etc/haproxy/haproxy.cfg
+
+systemctl daemon-reload
+systemctl enable kubeapi-proxy.service
+systemctl start kubeapi-proxy.service

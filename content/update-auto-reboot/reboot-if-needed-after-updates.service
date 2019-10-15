@@ -1,0 +1,10 @@
+[Unit]
+Description=Reboot if needed after updates
+After=multi-user.target cloud-final.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/update-auto-reboot/reboot-if-needed-after-updates
+
+[Install]
+WantedBy=multi-user.target

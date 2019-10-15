@@ -1,0 +1,68 @@
+#!/bin/bash
+
+set -o xtrace
+
+CLUSTER_NAME="$1"
+CLUSTER_CA_BASE64="$2"
+CLUSTER_API_ENDPOINT="$3"
+
+NODE_EXPORTER_RELEASE_S3_URI="$4"
+NODE_EXPORTER_INSTALLATION_FILES_S3_URI="$5"
+UPDATE_AUTO_REBOOT_INSTALLATION_FILES_S3_URI="$6"
+
+yum makecache
+amazon-linux-extras install epel # EPEL provides ncdu but does not provide commercial support
+yum install -y bind-utils tcpdump traceroute mtr ncdu
+
+# Common setup downloads
+AWS_DEFAULT_REGION="$(curl http://169.254.169.254/latest/dynamic/instance-identity/document --silent --fail | jq .region -rM)"
+export AWS_DEFAULT_REGION
+
+mkdir -p /var/tmp/downloads/node-exporter
+aws s3 cp "${NODE_EXPORTER_RELEASE_S3_URI}" /var/tmp/downloads/node-exporter/node_exporter.tar.gz
+aws s3 cp --recursive "${NODE_EXPORTER_INSTALLATION_FILES_S3_URI}" /var/tmp/downloads/node-exporter
+
+mkdir -p /var/tmp/downloads/update-auto-reboot
+aws s3 cp --recursive "${UPDATE_AUTO_REBOOT_INSTALLATION_FILES_S3_URI}" /var/tmp/downloads/update-auto-reboot
+
+# Auto rebooter
+chmod 0544 /var/tmp/downloads/update-auto-reboot/update-auto-reboot-install
+/var/tmp/downloads/update-auto-reboot/update-auto-reboot-install
+
+# Node exporter
+chmod 0544 /var/tmp/downloads/node-exporter/node-exporter-install
+/var/tmp/downloads/node-exporter/node-exporter-install /var/tmp/downloads/node-exporter/node_exporter.tar.gz
+
+# Kubernetes
+BLOCK_METADATA_CMD="$(cat - <<EOF
+#!/bin/bash
+iptables -A FORWARD --in-interface eni+ -d 169.254.169.254 -j DROP
+EOF
+)"
+echo "$BLOCK_METADATA_CMD" > /bin/block-ec2-metadata-from-cni
+chmod 0500 /bin/block-ec2-metadata-from-cni
+
+/bin/block-ec2-metadata-from-cni
+
+mkdir -p /etc/systemd/system/iptables-restore.service.d
+cat - <<EOF > /etc/systemd/system/iptables-restore.service.d/block-ec2-metadata-from-cni.conf
+[Service]
+ExecStartPost=-/bin/block-ec2-metadata-from-cni
+EOF
+
+systemctl daemon-reload
+
+# Note that these values need to account for actual node sizing and running jobs
+EXTRA_ARGS=""
+EXTRA_ARGS="$EXTRA_ARGS --system-reserved=cpu=100m,memory=500Mi,ephemeral-storage=5Gi"
+EXTRA_ARGS="$EXTRA_ARGS --kube-reserved=cpu=100m,memory=200Mi"
+EXTRA_ARGS="$EXTRA_ARGS --eviction-hard=memory.available<500Mi"
+EXTRA_ARGS="$EXTRA_ARGS --enforce-node-allocatable pods"
+EXTRA_ARGS="$EXTRA_ARGS --node-labels=colour=blue"
+
+/etc/eks/bootstrap.sh \
+  "${CLUSTER_NAME}" \
+  --b64-cluster-ca "$CLUSTER_CA_BASE64" \
+  --apiserver-endpoint "$CLUSTER_API_ENDPOINT" \
+  --kubelet-extra-args "$EXTRA_ARGS"
+

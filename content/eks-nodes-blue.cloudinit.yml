@@ -1,0 +1,10 @@
+#cloud-config
+repo_upgrade: security
+write_files:
+- path: "/tmp/bootstrap-userdata"
+  encoding: b64
+  permissions: 0500
+  content: "${LaunchScript}"
+runcmd:
+- [ "/tmp/bootstrap-userdata", "${ClusterName}", "${ClusterCABase64}", "${ClusterAPI}", "${node-exporter-release-s3-uri}", "${node-exporter-installation-files-s3-uri}", "${update-auto-reboot-installation-files-s3-uri}" ]
+- [ "/usr/bin/yum", "update", "--security", "--assumeyes" ]
